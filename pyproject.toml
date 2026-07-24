@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-fal-ai-nodes"
+version = "0.3.0"
+description = "Custom ComfyUI nodes for fal.ai models"
+license = { file = "LICENSE" }
+dependencies = ["fal-client", "torch", "Pillow", "numpy"]
+
+[project.urls]
+Repository = "https://github.com/elle-trudgett/fal-ai-comfyui-nodes"
+
+[tool.comfy]
+PublisherId = "elle-trudgett"
+DisplayName = "ComfyUI fal.ai Nodes"
+Icon = "https://raw.githubusercontent.com/elle-trudgett/fal-ai-comfyui-nodes/main/assets/icon.png"
