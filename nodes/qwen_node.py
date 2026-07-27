@@ -1,6 +1,10 @@
+import os
+
+import fal_client
+import requests
 from fal_client.client import FalClientHTTPError
 
-from .fal_utils import ApiHandler, ImageUtils, ResultProcessor, extract_fal_error_message
+from .fal_utils import ImageUtils, ResultProcessor, extract_fal_error_message
 
 IMAGE_SIZE_PRESETS = [
     "square_hd",
@@ -13,6 +17,43 @@ IMAGE_SIZE_PRESETS = [
 ]
 
 
+def _build_usage_stats(fal_auth, result, image_size):
+    """Sestaví textový výstup se statistikami generování, stejně jako
+    u uzlu FAL_OpenRouterLLMAPI (počet obrázků, velikost, zůstatek kreditu)."""
+    account_name = fal_auth.get("account_name", "Neznámý") if fal_auth else "Neznámý"
+    admin_key = fal_auth.get("admin_key") if fal_auth else None
+
+    images_count = len(result.get("images", []))
+
+    balance = "N/A"
+    currency = "USD"
+    if admin_key:
+        url = "https://api.fal.ai/v1/account/billing"
+        headers = {"Authorization": f"Key {admin_key}"}
+        try:
+            response = requests.get(
+                url,
+                headers=headers,
+                params={"expand": "credits"},
+                timeout=5,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            credits_dict = data.get("credits", {})
+            balance = credits_dict.get("current_balance", "N/A")
+            currency = credits_dict.get("currency", "USD")
+        except Exception as e:
+            balance = f"Chyba při zjišťování ({e})"
+
+    return (
+        f"📊 Statistiky generování (Účet: {account_name}):\n"
+        f"• Vygenerováno obrázků: {images_count}\n"
+        f"• Velikost obrázku: {image_size}\n"
+        f"• Zbývá kreditu: {balance} {currency}"
+    )
+
+
 class QwenImageNode:
     """Text-to-image generation using fal.ai's Qwen Image."""
 
@@ -22,6 +63,7 @@ class QwenImageNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "fal_auth": ("FAL_AUTH",),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
             },
             "optional": {
@@ -41,12 +83,13 @@ class QwenImageNode:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "usage_stats")
     FUNCTION = "generate"
 
     def generate(
         self,
+        fal_auth: dict,
         prompt,
         num_images=1,
         image_size="landscape_4_3",
@@ -62,6 +105,13 @@ class QwenImageNode:
         enable_safety_checker=True,
         private_mode=False,
     ):
+        gen_key = fal_auth.get("generation_key") if fal_auth else None
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key)."
+            )
+        os.environ["FAL_KEY"] = gen_key
+
         if image_size == "custom":
             size = {"width": custom_width, "height": custom_height}
         else:
@@ -84,14 +134,21 @@ class QwenImageNode:
         if negative_prompt:
             arguments["negative_prompt"] = negative_prompt
 
+        headers = {}
+        if private_mode:
+            headers["X-Fal-Store-IO"] = "0"
+            arguments["sync_mode"] = True
+
         try:
-            result = ApiHandler.submit_and_get_result(
-                "fal-ai/qwen-image", arguments, disable_storage=private_mode
+            result = fal_client.subscribe(
+                "fal-ai/qwen-image", arguments=arguments, headers=headers
             )
         except FalClientHTTPError as e:
             msg = extract_fal_error_message(e)
             raise RuntimeError(f"fal.ai error: {msg}") from None
-        return (ResultProcessor.process_image_result(result),)
+
+        usage_stats = _build_usage_stats(fal_auth, result, size)
+        return (ResultProcessor.process_image_result(result), usage_stats)
 
 
 class QwenImageToImageNode:
@@ -103,6 +160,7 @@ class QwenImageToImageNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "fal_auth": ("FAL_AUTH",),
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
             },
@@ -124,12 +182,13 @@ class QwenImageToImageNode:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "usage_stats")
     FUNCTION = "generate"
 
     def generate(
         self,
+        fal_auth: dict,
         image,
         prompt,
         strength=0.6,
@@ -147,6 +206,13 @@ class QwenImageToImageNode:
         enable_safety_checker=True,
         private_mode=False,
     ):
+        gen_key = fal_auth.get("generation_key") if fal_auth else None
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key)."
+            )
+        os.environ["FAL_KEY"] = gen_key
+
         image_url = ImageUtils.upload_image(image)
 
         if image_size == "custom":
@@ -173,14 +239,21 @@ class QwenImageToImageNode:
         if negative_prompt:
             arguments["negative_prompt"] = negative_prompt
 
+        headers = {}
+        if private_mode:
+            headers["X-Fal-Store-IO"] = "0"
+            arguments["sync_mode"] = True
+
         try:
-            result = ApiHandler.submit_and_get_result(
-                "fal-ai/qwen-image/image-to-image", arguments, disable_storage=private_mode
+            result = fal_client.subscribe(
+                "fal-ai/qwen-image/image-to-image", arguments=arguments, headers=headers
             )
         except FalClientHTTPError as e:
             msg = extract_fal_error_message(e)
             raise RuntimeError(f"fal.ai error: {msg}") from None
-        return (ResultProcessor.process_image_result(result),)
+
+        usage_stats = _build_usage_stats(fal_auth, result, size)
+        return (ResultProcessor.process_image_result(result), usage_stats)
 
 
 class QwenImageEditNode:
@@ -192,6 +265,7 @@ class QwenImageEditNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "fal_auth": ("FAL_AUTH",),
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
             },
@@ -213,12 +287,13 @@ class QwenImageEditNode:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "usage_stats")
     FUNCTION = "edit"
 
     def edit(
         self,
+        fal_auth: dict,
         image,
         prompt,
         image2=None,
@@ -236,6 +311,13 @@ class QwenImageEditNode:
         enable_safety_checker=True,
         private_mode=False,
     ):
+        gen_key = fal_auth.get("generation_key") if fal_auth else None
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key)."
+            )
+        os.environ["FAL_KEY"] = gen_key
+
         image_urls = ImageUtils.collect_image_urls(image, image2, image3)
 
         if image_size == "custom":
@@ -260,14 +342,21 @@ class QwenImageEditNode:
         if negative_prompt:
             arguments["negative_prompt"] = negative_prompt
 
+        headers = {}
+        if private_mode:
+            headers["X-Fal-Store-IO"] = "0"
+            arguments["sync_mode"] = True
+
         try:
-            result = ApiHandler.submit_and_get_result(
-                "fal-ai/qwen-image-edit-2511", arguments, disable_storage=private_mode
+            result = fal_client.subscribe(
+                "fal-ai/qwen-image-edit-2511", arguments=arguments, headers=headers
             )
         except FalClientHTTPError as e:
             msg = extract_fal_error_message(e)
             raise RuntimeError(f"fal.ai error: {msg}") from None
-        return (ResultProcessor.process_image_result(result),)
+
+        usage_stats = _build_usage_stats(fal_auth, result, size)
+        return (ResultProcessor.process_image_result(result), usage_stats)
 
 
 class QwenImage2Node:
@@ -279,6 +368,7 @@ class QwenImage2Node:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "fal_auth": ("FAL_AUTH",),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
             },
             "optional": {
@@ -295,12 +385,13 @@ class QwenImage2Node:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "usage_stats")
     FUNCTION = "generate"
 
     def generate(
         self,
+        fal_auth: dict,
         prompt,
         num_images=1,
         image_size="square_hd",
@@ -313,6 +404,13 @@ class QwenImage2Node:
         enable_safety_checker=True,
         private_mode=False,
     ):
+        gen_key = fal_auth.get("generation_key") if fal_auth else None
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key)."
+            )
+        os.environ["FAL_KEY"] = gen_key
+
         if image_size == "custom":
             size = {"width": custom_width, "height": custom_height}
         else:
@@ -332,14 +430,21 @@ class QwenImage2Node:
         if negative_prompt:
             arguments["negative_prompt"] = negative_prompt
 
+        headers = {}
+        if private_mode:
+            headers["X-Fal-Store-IO"] = "0"
+            arguments["sync_mode"] = True
+
         try:
-            result = ApiHandler.submit_and_get_result(
-                "fal-ai/qwen-image-2/text-to-image", arguments, disable_storage=private_mode
+            result = fal_client.subscribe(
+                "fal-ai/qwen-image-2/text-to-image", arguments=arguments, headers=headers
             )
         except FalClientHTTPError as e:
             msg = extract_fal_error_message(e)
             raise RuntimeError(f"fal.ai error: {msg}") from None
-        return (ResultProcessor.process_image_result(result),)
+
+        usage_stats = _build_usage_stats(fal_auth, result, size)
+        return (ResultProcessor.process_image_result(result), usage_stats)
 
 
 class QwenImage2EditNode:
@@ -351,6 +456,7 @@ class QwenImage2EditNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "fal_auth": ("FAL_AUTH",),
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
             },
@@ -370,12 +476,13 @@ class QwenImage2EditNode:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "usage_stats")
     FUNCTION = "edit"
 
     def edit(
         self,
+        fal_auth: dict,
         image,
         prompt,
         image2=None,
@@ -391,6 +498,13 @@ class QwenImage2EditNode:
         enable_safety_checker=True,
         private_mode=False,
     ):
+        gen_key = fal_auth.get("generation_key") if fal_auth else None
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key)."
+            )
+        os.environ["FAL_KEY"] = gen_key
+
         image_urls = ImageUtils.collect_image_urls(image, image2, image3)
 
         if image_size == "custom":
@@ -413,14 +527,21 @@ class QwenImage2EditNode:
         if negative_prompt:
             arguments["negative_prompt"] = negative_prompt
 
+        headers = {}
+        if private_mode:
+            headers["X-Fal-Store-IO"] = "0"
+            arguments["sync_mode"] = True
+
         try:
-            result = ApiHandler.submit_and_get_result(
-                "fal-ai/qwen-image-2/edit", arguments, disable_storage=private_mode
+            result = fal_client.subscribe(
+                "fal-ai/qwen-image-2/edit", arguments=arguments, headers=headers
             )
         except FalClientHTTPError as e:
             msg = extract_fal_error_message(e)
             raise RuntimeError(f"fal.ai error: {msg}") from None
-        return (ResultProcessor.process_image_result(result),)
+
+        usage_stats = _build_usage_stats(fal_auth, result, size)
+        return (ResultProcessor.process_image_result(result), usage_stats)
 
 
 class QwenImage2ProNode:
@@ -432,6 +553,7 @@ class QwenImage2ProNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "fal_auth": ("FAL_AUTH",),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
             },
             "optional": {
@@ -448,12 +570,13 @@ class QwenImage2ProNode:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "usage_stats")
     FUNCTION = "generate"
 
     def generate(
         self,
+        fal_auth: dict,
         prompt,
         num_images=1,
         image_size="square_hd",
@@ -466,6 +589,13 @@ class QwenImage2ProNode:
         enable_safety_checker=True,
         private_mode=False,
     ):
+        gen_key = fal_auth.get("generation_key") if fal_auth else None
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key)."
+            )
+        os.environ["FAL_KEY"] = gen_key
+
         if image_size == "custom":
             size = {"width": custom_width, "height": custom_height}
         else:
@@ -485,14 +615,21 @@ class QwenImage2ProNode:
         if negative_prompt:
             arguments["negative_prompt"] = negative_prompt
 
+        headers = {}
+        if private_mode:
+            headers["X-Fal-Store-IO"] = "0"
+            arguments["sync_mode"] = True
+
         try:
-            result = ApiHandler.submit_and_get_result(
-                "fal-ai/qwen-image-2/pro/text-to-image", arguments, disable_storage=private_mode
+            result = fal_client.subscribe(
+                "fal-ai/qwen-image-2/pro/text-to-image", arguments=arguments, headers=headers
             )
         except FalClientHTTPError as e:
             msg = extract_fal_error_message(e)
             raise RuntimeError(f"fal.ai error: {msg}") from None
-        return (ResultProcessor.process_image_result(result),)
+
+        usage_stats = _build_usage_stats(fal_auth, result, size)
+        return (ResultProcessor.process_image_result(result), usage_stats)
 
 
 class QwenImage2ProEditNode:
@@ -504,6 +641,7 @@ class QwenImage2ProEditNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "fal_auth": ("FAL_AUTH",),
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
             },
@@ -523,12 +661,13 @@ class QwenImage2ProEditNode:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "usage_stats")
     FUNCTION = "edit"
 
     def edit(
         self,
+        fal_auth: dict,
         image,
         prompt,
         image2=None,
@@ -544,6 +683,13 @@ class QwenImage2ProEditNode:
         enable_safety_checker=True,
         private_mode=False,
     ):
+        gen_key = fal_auth.get("generation_key") if fal_auth else None
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key)."
+            )
+        os.environ["FAL_KEY"] = gen_key
+
         image_urls = ImageUtils.collect_image_urls(image, image2, image3)
 
         if image_size == "custom":
@@ -566,14 +712,21 @@ class QwenImage2ProEditNode:
         if negative_prompt:
             arguments["negative_prompt"] = negative_prompt
 
+        headers = {}
+        if private_mode:
+            headers["X-Fal-Store-IO"] = "0"
+            arguments["sync_mode"] = True
+
         try:
-            result = ApiHandler.submit_and_get_result(
-                "fal-ai/qwen-image-2/pro/edit", arguments, disable_storage=private_mode
+            result = fal_client.subscribe(
+                "fal-ai/qwen-image-2/pro/edit", arguments=arguments, headers=headers
             )
         except FalClientHTTPError as e:
             msg = extract_fal_error_message(e)
             raise RuntimeError(f"fal.ai error: {msg}") from None
-        return (ResultProcessor.process_image_result(result),)
+
+        usage_stats = _build_usage_stats(fal_auth, result, size)
+        return (ResultProcessor.process_image_result(result), usage_stats)
 
 
 NODE_CLASS_MAPPINGS = {
