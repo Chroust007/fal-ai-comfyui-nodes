@@ -22,12 +22,26 @@ OUTPUT_FORMATS = ["jpeg", "png"]
 
 def _build_usage_stats(fal_auth, result, image_size):
     """Sestaví textový výstup se statistikami generování, stejně jako
-    u uzlu FAL_OpenRouterLLMAPI (počet obrázků, velikost, seed, zůstatek kreditu)."""
+    u uzlu FAL_OpenRouterLLMAPI (počet obrázků, velikost, seed, čas generování,
+    NSFW detekce, rozšířený prompt, zůstatek kreditu)."""
     account_name = fal_auth.get("account_name", "Neznámý") if fal_auth else "Neznámý"
     admin_key = fal_auth.get("admin_key") if fal_auth else None
 
     images_count = len(result.get("images", []))
     seed_used = result.get("seed", "N/A")
+
+    timings = result.get("timings") or {}
+    inference_time = timings.get("inference")
+    time_str = f"{inference_time:.2f} s" if isinstance(inference_time, (int, float)) else "N/A"
+
+    nsfw_flags = result.get("has_nsfw_concepts") or []
+    nsfw_str = f"{sum(1 for f in nsfw_flags if f)}/{len(nsfw_flags)}" if nsfw_flags else "N/A"
+
+    actual_prompt = result.get("actual_prompt")
+    original_prompt = result.get("prompt")
+    expanded_prompt_line = ""
+    if actual_prompt and actual_prompt != original_prompt:
+        expanded_prompt_line = f"• Rozšířený prompt: {actual_prompt}\n"
 
     balance = "N/A"
     currency = "USD"
@@ -55,6 +69,9 @@ def _build_usage_stats(fal_auth, result, image_size):
         f"• Vygenerováno obrázků: {images_count}\n"
         f"• Velikost obrázku: {image_size}\n"
         f"• Použitý seed: {seed_used}\n"
+        f"• Doba generování: {time_str}\n"
+        f"• NSFW obsah (obrázky): {nsfw_str}\n"
+        f"{expanded_prompt_line}"
         f"• Zbývá kreditu: {balance} {currency}"
     )
 

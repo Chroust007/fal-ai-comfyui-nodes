@@ -1,7 +1,7 @@
 
 import importlib
 
-node_list = ["image_node", "qwen_node", "RMBG_node", "DepthAnythingV2_node", "SeedVR2_node","openrouter_vision_node", "Fal_Auth_node", "openrouter_LLM_API_node", "seedream_image_node", "krea2_turbo_lora_node"]
+node_list = ["image_node", "qwen_node", "RMBG_node", "DepthAnythingV2_node", "SeedVR2_node","openrouter_vision_node", "Fal_Auth_node", "openrouter_LLM_API_node", "seedream_image_node", "krea2_turbo_lora_node", "krea2_turbo_node"]
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
