@@ -5,6 +5,7 @@ import requests
 from fal_client.client import FalClientHTTPError
 
 from .fal_utils import ResultProcessor, extract_fal_error_message
+from .Fal_Auth_node import FalAuthVault
 
 IMAGE_SIZE_PRESETS = [
     "square_hd",
@@ -24,8 +25,9 @@ def _build_usage_stats(fal_auth, result, image_size):
     """Sestaví textový výstup se statistikami generování, stejně jako
     u uzlu FAL_OpenRouterLLMAPI (počet obrázků, velikost, seed, čas generování,
     NSFW detekce, rozšířený prompt, zůstatek kreditu)."""
-    account_name = fal_auth.get("account_name", "Neznámý") if fal_auth else "Neznámý"
-    admin_key = fal_auth.get("admin_key") if fal_auth else None
+    creds = FalAuthVault.get_credentials(fal_auth)
+    account_name = creds.get("account_name", "Neznámý")
+    admin_key = creds.get("admin_key")
 
     images_count = len(result.get("images", []))
     seed_used = result.get("seed", "N/A")
@@ -137,11 +139,13 @@ class FAL_Krea2TurboLoRA:
         output_format="png",
         private_mode=False,
     ):
-        # Autorizace přes propojený Fal_Auth uzel (místo config.ini)
-        gen_key = fal_auth.get("generation_key") if fal_auth else None
+        # Autorizace přes propojený Fal_Auth uzel (In-Memory Vault)
+        creds = FalAuthVault.get_credentials(fal_auth)
+        gen_key = creds.get("generation_key")
         if not gen_key:
             raise RuntimeError(
-                "Uzel Fal_Auth nevrátil platný API klíč (generation_key)."
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key). "
+                "Ujistěte se, že uzel Fal_Auth je správně připojen a nakonfigurován."
             )
         os.environ["FAL_KEY"] = gen_key
 

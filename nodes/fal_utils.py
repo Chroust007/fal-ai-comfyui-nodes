@@ -118,6 +118,77 @@ class ResultProcessor:
 
         return torch.stack(tensors)
 
+    @staticmethod
+    def decode_audio_bytes(data: bytes):
+        """Decode raw audio bytes (mp3, wav, flac, etc.) to ComfyUI AUDIO dict: {'waveform': tensor [batch, channels, samples], 'sample_rate': int}."""
+        # 1. Try PyAV (av)
+        try:
+            import av
+
+            with av.open(io.BytesIO(data)) as af:
+                if af.streams.audio:
+                    stream = af.streams.audio[0]
+                    sr = stream.codec_context.sample_rate or 44100
+                    n_channels = stream.channels or 1
+                    frames = []
+                    for frame in af.decode(streams=stream.index):
+                        buf = torch.from_numpy(frame.to_ndarray())
+                        if buf.shape[0] != n_channels:
+                            buf = buf.view(-1, n_channels).t()
+                        frames.append(buf)
+                    if frames:
+                        wav = torch.cat(frames, dim=1)
+                        if not wav.dtype.is_floating_point:
+                            if wav.dtype == torch.int16:
+                                wav = wav.float() / 32768.0
+                            elif wav.dtype == torch.int32:
+                                wav = wav.float() / 2147483648.0
+                            elif wav.dtype == torch.uint8:
+                                wav = (wav.float() - 128.0) / 128.0
+                            else:
+                                wav = wav.float()
+                        if wav.dim() == 2:
+                            wav = wav.unsqueeze(0)
+                        return {"waveform": wav, "sample_rate": int(sr)}
+        except Exception:
+            pass
+
+        # 2. Try torchaudio
+        try:
+            import torchaudio
+
+            waveform, sr = torchaudio.load(io.BytesIO(data))
+            if waveform.dim() == 2:
+                waveform = waveform.unsqueeze(0)
+            return {"waveform": waveform, "sample_rate": int(sr)}
+        except Exception:
+            pass
+
+        raise RuntimeError("Failed to decode audio bytes with both PyAV (av) and torchaudio.")
+
+    @staticmethod
+    def process_audio_result(result):
+        """Download audio from result URL or data URI and return ComfyUI AUDIO dict."""
+        import urllib.request
+
+        audio_obj = result.get("audio")
+        if not audio_obj:
+            raise ValueError(f"No audio found in API response: {result}")
+
+        url = audio_obj.get("url") if isinstance(audio_obj, dict) else str(audio_obj)
+        if not url:
+            raise ValueError(f"No audio URL in API response: {result}")
+
+        if url.startswith("data:"):
+            header, encoded = url.split(",", 1)
+            data = base64.b64decode(encoded)
+        else:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req) as resp:
+                data = resp.read()
+
+        return ResultProcessor.decode_audio_bytes(data)
+
 
 def extract_fal_error_message(e):
     """Pull a human-readable message from a FalClientHTTPError."""

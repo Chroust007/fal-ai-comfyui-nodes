@@ -27,6 +27,15 @@ All nodes appear under the **fal.ai/Image** category in ComfyUI.
 | **Qwen Image 2 Pro** | Text-to-image generation (v2 Pro) | `fal-ai/qwen-image-2/pro/text-to-image` |
 | **Qwen Image 2 Pro Edit** | Image editing (v2 Pro) | `fal-ai/qwen-image-2/pro/edit` |
 
+### ElevenLabs Audio / TTS & Dialogue
+
+Appears under the **fal.ai/Audio** category.
+
+| Node | Description | Endpoint |
+|---|---|---|
+| **ElevenLabs TTS Multilingual v2** | Text-to-speech generation with 29 languages & custom voices | `fal-ai/elevenlabs/tts/multilingual-v2` |
+| **ElevenLabs Text to Dialogue Eleven v3** | Multi-speaker conversational dialogue generation with emotions | `fal-ai/elevenlabs/text-to-dialogue/eleven-v3` |
+
 ## Installation
 
 Clone into your ComfyUI `custom_nodes` directory:

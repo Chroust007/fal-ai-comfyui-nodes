@@ -11,6 +11,7 @@ import requests
 
 from fal_client.client import FalClientHTTPError
 from .fal_utils import ApiHandler, ImageUtils, FalConfig, extract_fal_error_message
+from .Fal_Auth_node import FalAuthVault
 import requests as _requests_for_usage
 
 
@@ -38,8 +39,9 @@ def _fetch_balance(admin_key):
 
 def _build_usage_stats(fal_auth, result, image_size):
     """Sestaví textový výstup se statistikami generování."""
-    account_name = (fal_auth.get("account_name", "Neznámý") if fal_auth else "Neznámý")
-    admin_key = fal_auth.get("admin_key") if fal_auth else None
+    creds = FalAuthVault.get_credentials(fal_auth)
+    account_name = creds.get("account_name", "Neznámý")
+    admin_key = creds.get("admin_key")
 
     images_count = 1 if result else 0
     seed_used = result.get("seed", "N/A") if isinstance(result, dict) else "N/A"
@@ -148,8 +150,14 @@ class FalSeedVR2SeamlessNode:
         private_mode=False,
     ):
         """Upscale an image via the SeedVR2 Seamless endpoint on fal.ai."""
-        # 1. Autorizace – použijeme FalConfig jako ostatní uzly
-        gen_key = fal_auth.get("generation_key")
+        # 1. Autorizace přes In-Memory Vault
+        creds = FalAuthVault.get_credentials(fal_auth)
+        gen_key = creds.get("generation_key", "")
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key). "
+                "Ujistěte se, že uzel Fal_Auth je správně připojen a nakonfigurován."
+            )
         FalConfig._client = None  # Force refresh if key changes
         os.environ["FAL_KEY"] = gen_key
         FalConfig.get_client()

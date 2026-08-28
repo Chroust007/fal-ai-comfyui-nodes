@@ -8,6 +8,8 @@ import fal_client
 import requests
 import json
 
+from .Fal_Auth_node import FalAuthVault
+
 # Seznam vision modelů dostupných přes fal.ai OpenRouter model selector
 OPENROUTER_MODELS = [
     "google/gemini-2.5-flash",
@@ -107,10 +109,17 @@ class FAL_OpenRouterVisionAPI:
         enable_reasoning: bool = False,
         streaming: bool = False
     ):
-        # 1. NASTAVENÍ AUTORIZACE Z PROPOJENÉHO UZLU
-        gen_key = fal_auth.get("generation_key")
-        admin_key = fal_auth.get("admin_key")
-        account_name = fal_auth.get("account_name", "Neznámý")
+        # 1. NASTAVENÍ AUTORIZACE Z PROPOJENÉHO UZLU PŘES IN-MEMORY VAULT
+        creds = FalAuthVault.get_credentials(fal_auth)
+        gen_key = creds.get("generation_key", "")
+        admin_key = creds.get("admin_key", "")
+        account_name = creds.get("account_name", "Neznámý")
+
+        if not gen_key:
+            raise RuntimeError(
+                "Nepodařilo se získat platný API klíč z Fal_Auth uzlu (In-Memory Vault). "
+                "Ujistěte se, že uzel Fal_Auth je správně připojen a nakonfigurován v config.ini."
+            )
         
         # Fal_client interně čte os.environ["FAL_KEY"]
         os.environ["FAL_KEY"] = gen_key
