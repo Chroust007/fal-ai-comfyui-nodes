@@ -36,6 +36,14 @@ Appears under the **fal.ai/Audio** category.
 | **ElevenLabs TTS Multilingual v2** | Text-to-speech generation with 29 languages & custom voices | `fal-ai/elevenlabs/tts/multilingual-v2` |
 | **ElevenLabs Text to Dialogue Eleven v3** | Multi-speaker conversational dialogue generation with emotions | `fal-ai/elevenlabs/text-to-dialogue/eleven-v3` |
 
+### MiniMax Video
+
+Appears under the **fal.ai/Video** category.
+
+| Node | Description | Endpoint |
+|---|---|---|
+| **MiniMax H3 Max Turbo Image to Video** | Image-to-video, first-to-last frame animation & text-to-video generation | `minimax/h3-max-turbo/image-to-video` |
+
 ## Installation
 
 Clone into your ComfyUI `custom_nodes` directory:

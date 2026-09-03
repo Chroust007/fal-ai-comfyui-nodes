@@ -189,6 +189,97 @@ class ResultProcessor:
 
         return ResultProcessor.decode_audio_bytes(data)
 
+    @staticmethod
+    def decode_video_bytes(data: bytes):
+        """Decode raw video bytes (mp4, webm, etc.) to ComfyUI IMAGE tensor batch [frames, H, W, 3] and fps (float)."""
+        # 1. Try PyAV (av)
+        try:
+            import av
+
+            with av.open(io.BytesIO(data)) as container:
+                if container.streams.video:
+                    stream = container.streams.video[0]
+                    fps = 24.0
+                    if stream.average_rate:
+                        fps = float(stream.average_rate)
+                    elif stream.r_frame_rate:
+                        fps = float(stream.r_frame_rate)
+
+                    frames = []
+                    for frame in container.decode(stream):
+                        img = frame.to_image().convert("RGB")
+                        arr = np.array(img).astype(np.float32) / 255.0
+                        frames.append(torch.from_numpy(arr))
+                    if frames:
+                        return torch.stack(frames), float(fps)
+        except Exception:
+            pass
+
+        # 2. Try OpenCV (cv2)
+        try:
+            import cv2
+
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+                f.write(data)
+                tmp_path = f.name
+            try:
+                cap = cv2.VideoCapture(tmp_path)
+                fps = float(cap.get(cv2.CAP_PROP_FPS) or 24.0)
+                frames = []
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    arr = frame_rgb.astype(np.float32) / 255.0
+                    frames.append(torch.from_numpy(arr))
+                cap.release()
+                if frames:
+                    return torch.stack(frames), fps
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+        except Exception:
+            pass
+
+        # 3. Try imageio
+        try:
+            import imageio.v3 as iio
+
+            frames_np = iio.imread(io.BytesIO(data), index=None)
+            if len(frames_np) > 0:
+                arr = frames_np.astype(np.float32) / 255.0
+                if arr.ndim == 4:
+                    return torch.from_numpy(arr), 24.0
+        except Exception:
+            pass
+
+        raise RuntimeError("Failed to decode video bytes with PyAV (av), OpenCV (cv2), and imageio.")
+
+    @staticmethod
+    def process_video_result(result):
+        """Download video from result URL or data URI and return (IMAGE tensor [frames, H, W, 3], fps (float), video_url (str))."""
+        import urllib.request
+
+        video_obj = result.get("video")
+        if not video_obj:
+            raise ValueError(f"No video found in API response: {result}")
+
+        url = video_obj.get("url") if isinstance(video_obj, dict) else str(video_obj)
+        if not url:
+            raise ValueError(f"No video URL in API response: {result}")
+
+        if url.startswith("data:"):
+            header, encoded = url.split(",", 1)
+            data = base64.b64decode(encoded)
+        else:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req) as resp:
+                data = resp.read()
+
+        frames_tensor, fps = ResultProcessor.decode_video_bytes(data)
+        return frames_tensor, fps, url
+
 
 def extract_fal_error_message(e):
     """Pull a human-readable message from a FalClientHTTPError."""

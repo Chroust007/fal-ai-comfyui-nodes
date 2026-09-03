@@ -15,6 +15,7 @@ node_list = [
     "krea2_turbo_lora_node",
     "krea2_turbo_node",
     "elevenlabs_tts_node",
+    "minimax_h3_node",
 ]
 
 NODE_CLASS_MAPPINGS = {}
