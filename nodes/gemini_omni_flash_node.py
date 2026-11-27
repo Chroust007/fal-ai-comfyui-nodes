@@ -12,12 +12,29 @@ from .fal_utils import (
     extract_fal_error_message,
 )
 
-ENDPOINT = "google/gemini-omni-flash/v1.2/reference-to-video"
+REFERENCE_TO_VIDEO_ENDPOINT = "google/gemini-omni-flash/v1.2/reference-to-video"
+IMAGE_TO_VIDEO_ENDPOINT = "google/gemini-omni-flash/v1.2/image-to-video"
 ASPECT_RATIO_OPTIONS = ["16:9", "9:16"]
 RESOLUTION_OPTIONS = ["360p", "720p", "1080p", "4k"]
 MAX_REFERENCE_IMAGES = 10
 MAX_REFERENCE_VIDEOS = 3
 MAX_PROMPT_LENGTH = 20000
+MAX_DURATION_WITH_END_IMAGE = 10
+
+
+def _configure_fal_auth(fal_auth):
+    """Nastaví API klíč přes Fal_Auth uzel nebo fallback na FalConfig / FAL_KEY."""
+    if fal_auth is not None:
+        creds = FalAuthVault.get_credentials(fal_auth)
+        gen_key = creds.get("generation_key")
+        if not gen_key:
+            raise RuntimeError(
+                "Uzel Fal_Auth nevrátil platný API klíč (generation_key). "
+                "Ujistěte se, že uzel Fal_Auth je správně připojen a nakonfigurován."
+            )
+        os.environ["FAL_KEY"] = gen_key
+    else:
+        FalConfig.get_client()
 
 
 def _fetch_balance(admin_key):
@@ -45,11 +62,11 @@ def _fetch_balance(admin_key):
 def _build_usage_stats(
     fal_auth,
     result,
+    endpoint,
     aspect_ratio,
     resolution,
     duration,
-    num_images,
-    num_videos,
+    extra_lines=None,
 ):
     """Sestaví textový výstup se statistikami generování videa."""
     account_name = "Neznámý"
@@ -72,18 +89,23 @@ def _build_usage_stats(
 
     balance, currency = _fetch_balance(admin_key)
 
-    return (
-        f"📊 Statistiky generování videa (Účet: {account_name}):\n"
-        f"• Model: {ENDPOINT}\n"
-        f"• Poměr stran: {aspect_ratio}\n"
-        f"• Rozlišení: {resolution}\n"
-        f"• Délka videa: {duration} s\n"
-        f"• Referenční obrázky: {num_images}\n"
-        f"• Referenční videa: {num_videos}\n"
-        f"• Doba generování: {time_str}\n"
-        f"• Video URL: {video_url}\n"
-        f"• Zbývá kreditu: {balance} {currency}"
+    lines = [
+        f"📊 Statistiky generování videa (Účet: {account_name}):",
+        f"• Model: {endpoint}",
+        f"• Poměr stran: {aspect_ratio}",
+        f"• Rozlišení: {resolution}",
+        f"• Délka videa: {duration} s",
+    ]
+    if extra_lines:
+        lines.extend(extra_lines)
+    lines.extend(
+        [
+            f"• Doba generování: {time_str}",
+            f"• Video URL: {video_url}",
+            f"• Zbývá kreditu: {balance} {currency}",
+        ]
     )
+    return "\n".join(lines)
 
 
 class FAL_GeminiOmniFlashReferenceToVideo:
@@ -208,17 +230,7 @@ class FAL_GeminiOmniFlashReferenceToVideo:
             )
 
         # 1. Autorizace přes Fal_Auth uzel nebo fallback na FalConfig / FAL_KEY
-        if fal_auth is not None:
-            creds = FalAuthVault.get_credentials(fal_auth)
-            gen_key = creds.get("generation_key")
-            if not gen_key:
-                raise RuntimeError(
-                    "Uzel Fal_Auth nevrátil platný API klíč (generation_key). "
-                    "Ujistěte se, že uzel Fal_Auth je správně připojen a nakonfigurován."
-                )
-            os.environ["FAL_KEY"] = gen_key
-        else:
-            FalConfig.get_client()
+        _configure_fal_auth(fal_auth)
 
         # 2. Zpracování referenčních obrázků (max 10)
         image_urls = ImageUtils.collect_image_urls(
@@ -283,7 +295,7 @@ class FAL_GeminiOmniFlashReferenceToVideo:
         # 6. Volání API fal.ai
         try:
             result = fal_client.subscribe(
-                ENDPOINT,
+                REFERENCE_TO_VIDEO_ENDPOINT,
                 arguments=arguments,
                 headers=headers,
             )
@@ -297,11 +309,184 @@ class FAL_GeminiOmniFlashReferenceToVideo:
         usage_stats = _build_usage_stats(
             fal_auth=fal_auth,
             result=result,
+            endpoint=REFERENCE_TO_VIDEO_ENDPOINT,
             aspect_ratio=aspect_ratio,
             resolution=resolution,
             duration=int(duration),
-            num_images=len(image_urls),
-            num_videos=len(reference_video_urls),
+            extra_lines=[
+                f"• Referenční obrázky: {len(image_urls)}",
+                f"• Referenční videa: {len(reference_video_urls)}",
+            ],
+        )
+
+        return (
+            frames_tensor,
+            video_url,
+            fps,
+            usage_stats,
+        )
+
+
+class FAL_GeminiOmniFlashImageToVideo:
+    """Generování videa z obrázku pomocí Google Gemini OmniFlash v1.2 Image-to-Video na fal.ai.
+
+    Model: google/gemini-omni-flash/v1.2/image-to-video
+    Animuje vstupní obrázek (first frame) do videa s nativním zvukem, s volitelným
+    koncovým obrázkem (end_image) pro interpolaci prvního a posledního snímku (max 10 s).
+    Výstupem jsou snímky videa jako ComfyUI IMAGE tensor batch, URL videa, FPS a statistiky.
+    """
+
+    CATEGORY = "fal.ai/Video"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "placeholder": "Např.: The dog turns its head and wags its tail in warm sunlight.",
+                    },
+                ),
+            },
+            "optional": {
+                "fal_auth": ("FAL_AUTH",),
+                "image": ("IMAGE",),
+                "end_image": ("IMAGE",),
+                "aspect_ratio": (ASPECT_RATIO_OPTIONS, {"default": "16:9"}),
+                "resolution": (RESOLUTION_OPTIONS, {"default": "720p"}),
+                "duration": (
+                    "INT",
+                    {"default": 8, "min": 3, "max": 15, "step": 1},
+                ),
+                "custom_image_url": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "placeholder": "Volitelná přímá URL prvního snímku (image_url)",
+                    },
+                ),
+                "custom_end_image_url": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "placeholder": "Volitelná přímá URL koncového snímku (end_image_url, max délka 10 s)",
+                    },
+                ),
+                "private_mode": ("BOOLEAN", {"default": False}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "STRING", "FLOAT", "STRING")
+    RETURN_NAMES = ("frames", "video_url", "fps", "usage_stats")
+    FUNCTION = "generate_video"
+
+    def generate_video(
+        self,
+        prompt: str,
+        fal_auth=None,
+        image=None,
+        end_image=None,
+        aspect_ratio: str = "16:9",
+        resolution: str = "720p",
+        duration: int = 8,
+        custom_image_url: str = "",
+        custom_end_image_url: str = "",
+        private_mode: bool = False,
+    ):
+        if not prompt or not prompt.strip():
+            raise ValueError("Vstupní prompt pro generování videa nesmí být prázdný.")
+
+        cleaned_prompt = prompt.strip()
+        if len(cleaned_prompt) > MAX_PROMPT_LENGTH:
+            raise ValueError(
+                f"Prompt přesahuje maximální povolenou délku {MAX_PROMPT_LENGTH} znaků "
+                f"(aktuálně {len(cleaned_prompt)})."
+            )
+
+        has_first_image = bool(
+            (custom_image_url and custom_image_url.strip()) or image is not None
+        )
+        if not has_first_image:
+            raise ValueError(
+                "Je nutné zadat vstupní obrázek (image) nebo URL prvního snímku (custom_image_url)."
+            )
+
+        has_end_image = bool(
+            (custom_end_image_url and custom_end_image_url.strip())
+            or end_image is not None
+        )
+        duration_int = int(duration)
+        if has_end_image and duration_int > MAX_DURATION_WITH_END_IMAGE:
+            raise ValueError(
+                f"Při zadání koncového snímku (end_image) je maximální délka videa "
+                f"{MAX_DURATION_WITH_END_IMAGE} sekund (zadáno {duration_int} s)."
+            )
+
+        # 1. Autorizace přes Fal_Auth uzel nebo fallback na FalConfig / FAL_KEY
+        _configure_fal_auth(fal_auth)
+
+        # 2. Zpracování vstupních obrázků (první a volitelný koncový snímek)
+        if custom_image_url and custom_image_url.strip():
+            resolved_image_url = custom_image_url.strip()
+        else:
+            resolved_image_url = ImageUtils.upload_image(image)
+
+        resolved_end_image_url = None
+        if custom_end_image_url and custom_end_image_url.strip():
+            resolved_end_image_url = custom_end_image_url.strip()
+        elif end_image is not None:
+            resolved_end_image_url = ImageUtils.upload_image(end_image)
+
+        # 3. Sestavení argumentů pro API
+        arguments = {
+            "prompt": cleaned_prompt,
+            "image_url": resolved_image_url,
+            "aspect_ratio": aspect_ratio,
+            "resolution": resolution,
+            "duration": duration_int,
+        }
+
+        if resolved_end_image_url:
+            arguments["end_image_url"] = resolved_end_image_url
+
+        # 4. Hlavičky (private_mode)
+        headers = {}
+        if private_mode:
+            headers["X-Fal-Store-IO"] = "0"
+            arguments["sync_mode"] = True
+
+        # 5. Volání API fal.ai
+        try:
+            result = fal_client.subscribe(
+                IMAGE_TO_VIDEO_ENDPOINT,
+                arguments=arguments,
+                headers=headers,
+            )
+        except FalClientHTTPError as e:
+            msg = extract_fal_error_message(e)
+            raise RuntimeError(f"fal.ai error: {msg}") from None
+
+        # 6. Zpracování výstupu (dekódování videa na frames + fps)
+        frames_tensor, fps, video_url = ResultProcessor.process_video_result(result)
+
+        mode_desc = (
+            "Image-to-Video (First-to-Last Keyframe)"
+            if resolved_end_image_url
+            else "Image-to-Video"
+        )
+        usage_stats = _build_usage_stats(
+            fal_auth=fal_auth,
+            result=result,
+            endpoint=IMAGE_TO_VIDEO_ENDPOINT,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            duration=duration_int,
+            extra_lines=[f"• Režim: {mode_desc}"],
         )
 
         return (
@@ -314,8 +499,10 @@ class FAL_GeminiOmniFlashReferenceToVideo:
 
 NODE_CLASS_MAPPINGS = {
     "FAL_GeminiOmniFlashReferenceToVideo": FAL_GeminiOmniFlashReferenceToVideo,
+    "FAL_GeminiOmniFlashImageToVideo": FAL_GeminiOmniFlashImageToVideo,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "FAL_GeminiOmniFlashReferenceToVideo": "Gemini OmniFlash v1.2 Reference to Video (fal.ai)",
+    "FAL_GeminiOmniFlashImageToVideo": "Gemini OmniFlash v1.2 Image to Video (fal.ai)",
 }

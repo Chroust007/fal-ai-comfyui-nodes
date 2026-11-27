@@ -44,6 +44,7 @@ Appears under the **fal.ai/Video** category.
 |---|---|---|
 | **MiniMax H3 Max Turbo Image to Video** | Image-to-video, first-to-last frame animation & text-to-video generation | `minimax/h3-max-turbo/image-to-video` |
 | **Gemini OmniFlash v1.2 Reference to Video** | Reference-to-video generation with up to 10 reference images and up to 3 reference videos | `google/gemini-omni-flash/v1.2/reference-to-video` |
+| **Gemini OmniFlash v1.2 Image to Video** | Image-to-video animation with optional end frame interpolation (up to 10s) and native audio | `google/gemini-omni-flash/v1.2/image-to-video` |
 
 ## Installation
 
