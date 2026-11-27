@@ -45,6 +45,11 @@ Appears under the **fal.ai/Video** category.
 | **MiniMax H3 Max Turbo Image to Video** | Image-to-video, first-to-last frame animation & text-to-video generation | `minimax/h3-max-turbo/image-to-video` |
 | **Gemini OmniFlash v1.2 Reference to Video** | Reference-to-video generation with up to 10 reference images and up to 3 reference videos | `google/gemini-omni-flash/v1.2/reference-to-video` |
 | **Gemini OmniFlash v1.2 Image to Video** | Image-to-video animation with optional end frame interpolation (up to 10s) and native audio | `google/gemini-omni-flash/v1.2/image-to-video` |
+| **Veo 3.1 Text to Video** | Text-to-video generation with optional native audio (4s/6s/8s, up to 4K) | `fal-ai/veo3.1` |
+| **Veo 3.1 Fast Text to Video** | Fast text-to-video generation with optional native audio | `fal-ai/veo3.1/fast` |
+| **Veo 3.1 First-Last Frame to Video** | First-to-last frame video animation with optional native audio | `fal-ai/veo3.1/first-last-frame-to-video` |
+| **Veo 3.1 Fast First-Last Frame to Video** | Fast first-to-last frame video animation with optional native audio | `fal-ai/veo3.1/fast/first-last-frame-to-video` |
+| **Veo 3.1 Reference to Video** | Reference-to-video generation from reference images and text | `fal-ai/veo3.1/reference-to-video` |
 
 ## Installation
 

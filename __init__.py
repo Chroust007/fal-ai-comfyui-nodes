@@ -17,6 +17,7 @@ node_list = [
     "elevenlabs_tts_node",
     "minimax_h3_node",
     "gemini_omni_flash_node",
+    "veo3_1_node",
     "webcam_node",
 ]
 

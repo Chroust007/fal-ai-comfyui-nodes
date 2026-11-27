@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-fal-ai-nodes"
-version = "0.3.0"
+version = "0.4.0"
 description = "Custom ComfyUI nodes for fal.ai models"
 license = { file = "LICENSE" }
 dependencies = ["fal-client", "torch", "Pillow", "numpy"]
