@@ -16,6 +16,8 @@ node_list = [
     "krea2_turbo_node",
     "elevenlabs_tts_node",
     "minimax_h3_node",
+    "gemini_omni_flash_node",
+    "webcam_node",
 ]
 
 NODE_CLASS_MAPPINGS = {}
@@ -27,4 +29,6 @@ for module_name in node_list:
     NODE_DISPLAY_NAME_MAPPINGS.update(module.NODE_DISPLAY_NAME_MAPPINGS)
     
 
-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
+WEB_DIRECTORY = "./web"
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

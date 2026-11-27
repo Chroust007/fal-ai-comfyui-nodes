@@ -36,13 +36,14 @@ Appears under the **fal.ai/Audio** category.
 | **ElevenLabs TTS Multilingual v2** | Text-to-speech generation with 29 languages & custom voices | `fal-ai/elevenlabs/tts/multilingual-v2` |
 | **ElevenLabs Text to Dialogue Eleven v3** | Multi-speaker conversational dialogue generation with emotions | `fal-ai/elevenlabs/text-to-dialogue/eleven-v3` |
 
-### MiniMax Video
+### Video
 
 Appears under the **fal.ai/Video** category.
 
 | Node | Description | Endpoint |
 |---|---|---|
 | **MiniMax H3 Max Turbo Image to Video** | Image-to-video, first-to-last frame animation & text-to-video generation | `minimax/h3-max-turbo/image-to-video` |
+| **Gemini OmniFlash v1.2 Reference to Video** | Reference-to-video generation with up to 10 reference images and up to 3 reference videos | `google/gemini-omni-flash/v1.2/reference-to-video` |
 
 ## Installation
 

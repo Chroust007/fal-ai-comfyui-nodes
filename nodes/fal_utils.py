@@ -90,6 +90,60 @@ class ImageUtils:
         return urls
 
 
+class VideoUtils:
+    @staticmethod
+    def upload_video(video_input):
+        """Resolve a video input (URL, data URI, local path, bytes, or ComfyUI VIDEO object) to a fal URL."""
+        if video_input is None:
+            return None
+
+        if isinstance(video_input, str):
+            val = video_input.strip()
+            if not val:
+                return None
+            if val.startswith(("http://", "https://", "data:")):
+                return val
+            if os.path.isfile(val):
+                FalConfig.get_client()
+                return fal.upload_file(val)
+            raise ValueError(
+                f"Neplatný video vstup '{val}': zadejte platnou HTTP(S) URL nebo existující lokální cestu k souboru."
+            )
+
+        if isinstance(video_input, (bytes, bytearray)):
+            FalConfig.get_client()
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+                f.write(video_input)
+                tmp_path = f.name
+            try:
+                return fal.upload_file(tmp_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+        # ComfyUI native VIDEO object (VideoInput / VideoFromFile)
+        if hasattr(video_input, "get_stream_source"):
+            source = video_input.get_stream_source()
+            if isinstance(source, str) and os.path.isfile(source):
+                FalConfig.get_client()
+                return fal.upload_file(source)
+
+        if hasattr(video_input, "save_to"):
+            FalConfig.get_client()
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+                tmp_path = f.name
+            try:
+                video_input.save_to(tmp_path)
+                return fal.upload_file(tmp_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+        raise ValueError(
+            f"Nepodporovaný typ video vstupu: {type(video_input).__name__}"
+        )
+
+
 class ResultProcessor:
     @staticmethod
     def process_image_result(result):
